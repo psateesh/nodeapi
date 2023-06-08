@@ -128,22 +128,47 @@ var decodeAccessToken = (reqHeaders) => {
       token = reqHeaders.authorization.split(' ')[1];
     }
     var decoded = jwt.verify(token, 'nodeApi123!679');
-    console.log("1-------decoded",decoded);
+    console.log("decoded",decoded);
     return decoded;
   } catch(err) {
-    console.log("1-----jwt verify error", err);
+    console.log("jwt verify error", err);
   }
+}
+
+const validateReq = (data,res) => {
+  let msg = '';
+  if(!data.hasOwnProperty('userId')){
+    msg = 'userId is mandatory';
+  } else if(typeof data.userId === undefined ){
+    msg = 'userId is undefined';
+  } else if(parseInt(data.userId) !== data.userId ){
+    msg = 'userId must be integer';
+  }
+  return msg;
+ 
 }
 
 app.post('/api/userDetails/', (req, res) => {
    console.log("userDetails :: ",req.body.userId );
-   
+   var jwtInfo = decodeAccessToken(req.headers);
+
+  const msg = validateReq(req.body,res);
+  if(msg !== '') {
+    return res.status(403).send({
+      message: msg,
+    });
+  }
+    
+   if(jwtInfo.userId !== req.body.userId) {
+        return res.status(403).send({
+          message: "You do not have permission to view",
+        });
+   }
   User.findOne({
     where: {
        id: req.body.userId
     }
   }).then((data) => {
-    Logger.info(' Selected User Info => ', data);
         res.send({
           message: data,
         });
@@ -159,26 +184,24 @@ app.post('/api/userDetails/', (req, res) => {
 
 app.post('/api/updateDetails', (req, res) => {
   console.log("POST userDetails :: ",req.body );
- 
-  console.log("POST userDetails accessToken :: ",req.headers.authorization );
-  
-  try {
-    let token = '';
-    if (req.headers.authorization && req.headers.authorization.split(' ')[0] === 'Bearer') {
-      token = req.headers.authorization.split(' ')[1];
+   const msg = validateReq(req.body,res);
+   console.log("1-----msg", msg);
+   if(msg !== '') {
+    return res.status(403).send({
+      message: msg,
+    });
   }
-//    var token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyLCJ1c2VySWQiOjEsInVzZXJUeXBlIjoiYWRtaW4ifQ.Ihd4cYVc2E-xJH63V8E5BsXjtGSXZlWiFINDVkcT8b0';
-    var decoded = jwt.verify(token, 'nodeApi123!679');
-    console.log("decoded",decoded);
-  } catch(err) {
-    console.log("jwt verify error", err);
-  }
-  
-  var jwtInfo = decodeAccessToken(req.headers);
+  const jwtInfo = decodeAccessToken(req.headers);
+  const userInfo = req.body;
    if( jwtInfo.userType === 'user' ) {
       if(userInfo.hasOwnProperty('roleId')){
-        res.status(403).send({
+        return res.status(403).send({
           message: "You do not have permission to modify role"
+        });
+      }
+      if(userInfo.userId !== jwtInfo.userId){
+        return res.status(403).send({
+          message: "You do not have permission to modify the data"
         });
       }
    } 
@@ -187,7 +210,7 @@ app.post('/api/updateDetails', (req, res) => {
     where: { id: req.body.userId }
   })
   .then(num => {
-    if (num == 1) {
+    if (num[0] === 1) {
       res.send({
         message: "User details has been updated successfully."
       });
@@ -208,57 +231,76 @@ app.post('/api/updateDetails', (req, res) => {
 
 app.post('/api/allUsers/', (req, res) => {
   
- User.findAll().then((data) => {
-  
-  Logger.info('All User Info => ', data);
-       res.send({
-         message: data,
-       });
-     })
-     .catch((err) => {
-       res.status(500).send({
-         message:
-           err.message || 'Something went wrong',
-       });
-     });
-   
+  const jwtInfo = decodeAccessToken(req.headers);
+  if( jwtInfo.userType === 'admin' ) {
+    User.findAll({
+      where: { role_id: 2 },
+      attributes: ['id','name', 'email']
+    }).then((data) => {
+          Logger.info('All User Info => ', data);
+          if(data.length > 0) {
+            res.send({
+              message: data,
+            });
+          } else {
+            res.send({
+              message: "No records found",
+            });
+          }
+          
+        })
+        .catch((err) => {
+          res.status(500).send({
+            message:
+              err.message || 'Something went wrong',
+          });
+        });
+  } else {
+    return res.status(403).send({
+      message: "You do not have permission to see users"
+    });
+  }
 });
 
 app.post('/api/deleteUser/', (req, res) => {
   console.log("deleteUsers :: ",req.body.userId );
-  
-    var jwtInfo = decodeAccessToken(req.headers);
-  if(jwtInfo.userType !== 'admin'){
-    res.status(403).send({
-      message: "You do not have permission to delete user",
+  const msg = validateReq(req.body,res);
+  if(msg !== '') {
+    return res.status(403).send({
+      message: msg,
     });
   }
-
-  
- User.destroy({
-  where: {
-     id: req.body.userId 
-  }
-}).then((data) => {
-    console.log("1--------del ", data);
-    if(data === 1) {
-       res.send({
-         message: "User has been removed",
-       });
-      } else {
-        res.send({
-          message: "User not exist",
-        });
-      }
-     })
-     .catch((err) => {
-       res.status(500).send({
-         message:
-           err.message || 'Something went wrong',
-       });
-     });
-   
+    var jwtInfo = decodeAccessToken(req.headers);
+    if(jwtInfo.userType !== 'admin'){
+      return res.status(403).send({
+        message: "You do not have permission to delete user",
+      });
+    }
+        User.destroy({
+          where: {
+            id: req.body.userId 
+          }
+        }).then((data) => {
+            console.log("del ", data);
+            if(data === 1) {
+              res.send({
+                message: "User has been removed",
+              });
+              } else {
+                res.status(404).send({
+                  message: "User not exist",
+                });
+              }
+            })
+            .catch((err) => {
+              res.status(500).send({
+                message:
+                  err.message || 'Something went wrong',
+              });
+            });
+          
 });
+
 
 
 
